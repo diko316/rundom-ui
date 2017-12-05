@@ -2,7 +2,8 @@
 
 cd $(dirname $(dirname $(readlink -f $0)))
 
-npm install --save-dev -dd -y "jasmine-core" \
+npm install --save-dev -dd -y \
+    "jasmine-core" \
     "karma" \
     "karma-firefox-launcher" \
     "karma-jasmine" \
@@ -19,4 +20,12 @@ npm install --save-dev -dd -y "jasmine-core" \
     "rollup-plugin-uglify"
 
 
-rm -Rf node_modules
+#rm -Rf node_modules
+npm install --save -dd -y \
+    "libcore" \
+    "libcore-parser-lalr" \
+    "libdom" \
+    "libdom-http" \
+    "joqx"
+
+rm -Rf node_modules package-lock.json
