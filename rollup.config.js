@@ -19,7 +19,7 @@ let helper = require('./rollup/helper.js'),
 configure(config, meta);
 
 // setup by env
-switch (process.env.BUILD_MODE) {
+switch (process.env.BUILD) {
 case 'production':
     require("./rollup/production.js")(config, meta);
     break;
@@ -33,7 +33,7 @@ case 'unit-test':
     break;
 
 default:
-    require("./rollup/devel.js")(config, meta);
+    require("./rollup/demo.js")(config, meta);
 }
 
 

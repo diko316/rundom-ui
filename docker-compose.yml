@@ -23,7 +23,7 @@ services:
      - .:/opt/app-source:ro
 
   build:
-    image: joqx
+    image: rundom-ui
     container_name: "rundom-ui-builder"
     command: xvfb-run npm build
     

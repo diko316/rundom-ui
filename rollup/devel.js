@@ -2,7 +2,8 @@
 
 var browsersync = require('rollup-plugin-browsersync');
 
-function configure(config) {
+function configure(config, meta) {
+    
     config.plugins.
         push(browsersync({
                 server: {

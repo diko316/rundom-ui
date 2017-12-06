@@ -1,10 +1,13 @@
 'use strict';
 
 
-function augment(config) {
+function augment(config, meta) {
     var output;
     
-    output = config.output = {};
+
+    meta.demo = output = {};
+
+    config.output = [output];
 
     config.input = 'src/demo.js';
     output.file = 'dist/demo.js';
