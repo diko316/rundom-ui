@@ -1,2 +1,1 @@
-console.log('good');
-
+import ui from './index.js';
