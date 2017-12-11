@@ -19,10 +19,18 @@ export class Node {
 
     onDestroy() {
         var me = this,
-            parent = me.parent;
+            parent = me.parent,
+            last = this.last;
+        var subject;
 
         if (parent) {
             parent.remove(me);
+        }
+
+        // remove children
+        for (subject = last; subject;) {
+            subject = last.before;
+            last.destroy();
         }
     }
 
@@ -36,6 +44,10 @@ export class Node {
 
     isAdoptable(node) {
         return node instanceof Node;
+    }
+
+    configure(node) {
+        return node;
     }
 
     hasParent(node) {
@@ -55,6 +67,8 @@ export class Node {
     add(node, before) {
         var me = this;
         var parent, after;
+
+        node = this.configure(node);
 
         if (!me.isAdoptable(node)||
             node.parent === me || node.hasParent(me)) {
@@ -76,8 +90,6 @@ export class Node {
         if (parent) {
             parent.remove(node);
         }
-
-        
 
         // relate to siblings
         node.after = after = before;
