@@ -15,13 +15,16 @@ function innerRun() {
 }
 
 
-task.observe(function () {
+task.observe(function (reprocess) {
     console.log('prime run!');
     
-    task.run();
+    task.process();
     
+    console.log('until ', until);
 
-    return until--;
+    if (until--) {
+        reprocess();
+    }
 });
 
 task.observe(function () {
@@ -29,4 +32,4 @@ task.observe(function () {
 });
 
 
-task.run();
+task.process();

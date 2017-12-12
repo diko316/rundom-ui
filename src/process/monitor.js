@@ -15,6 +15,47 @@ export class ProcessMonitor {
 
     }
 
+    onRunProcess() {
+        var running = this.processing,
+            reports = [],
+            processTasks = true;
+        var node, requestingReprocess;
+
+        for (; processTasks;) {
+
+            processTasks = false;
+            this.onQueueAllProcess(running);
+
+            for (; running.length;) {
+                node = running.splice(0, 1)[0];
+                if (node.isAlive) {
+
+                    requestingReprocess = node.process();
+                    node.isPending = false;
+
+                    if (requestingReprocess) {
+                        processTasks = true;
+                    }
+                    
+                }
+            }
+
+        }
+
+        // run reports
+        running = [];
+        this.onQueueAllProcess(running);
+
+        for (; running.length;) {
+            node = running.splice(0, 1)[0];
+            
+            if (node.isAlive) {
+                node.report();
+            }
+        }
+    }
+
+    
     onQueueAllProcess(queue) {
 
         var len = queue.length,
@@ -71,20 +112,24 @@ export class ProcessMonitor {
     queue(node) {
         var running = this.processing;
 
-        // create thread
-        if (!this.isRunning) {
-            this.isRunning = true;
+        // queue for next process
+        if (node instanceof ProcessTask && node.isAlive && !node.isPending) {
 
-            if (node.isAlive && !node.isPending) {
-                node.isPending = true;
-                running[running.length] = node;
+            // insert to current process
+            node.isPending = true;
+            running[running.length] = node;
+
+            // create thread
+            if (!this.isRunning) {
+                
+                this.isRunning = true;
+
+                // run pending process
+                this.onRunProcess();
+
+                this.isRunning = false;
+
             }
-
-            this.onQueueAllProcess(running);
-
-            // run pending process
-
-            this.isRunning = false;
         }
 
     }

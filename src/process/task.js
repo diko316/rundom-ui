@@ -8,44 +8,87 @@ function doNothing() {
 
 }
 
+function createReprocessFlagCallback(status) {
+    function reprocess() {
+        status.rerun = true;
+    }
+    return reprocess;
+}
+
 export class ProcessTask extends Node {
 
     constructor(monitor) {
+        super();
+
         this.taskMonitor = monitor;
         this.microTasks = [];
+        this.reporters = [];
         this.isPending = false;
         this.isProcessing = false;
+        this.reprocessed = false;
+
     }
 
     // runs synchronous tasks
-    onProcess(status) {
+    onProcess(statusChangeCallback) {
         var list = this.microTasks,
             running = list.slice(0);
-        var task, result, callback;
+        var task, callback;
         
         for (; running.length; ) {
             task = running.splice(0, 1)[0];
 
             if (task[1]) {
-
-                result = false;
                 callback = task[0];
 
                 try {
-                    result = callback();
+                    callback(statusChangeCallback);
                 }
                 catch (e) {
                     console.warn(e);
                 }
 
-                if (result) {
-                    status.rerun = true;
-                }
             }
         }
 
-
     }
+
+    onReport(reprocessed) {
+        var list = this.reporters.slice(0);
+        var handler, callback;
+
+        for (; list.length;) {
+            handler = list.splice(0, 1)[0];
+
+            if (handler[1]) {
+                callback = handler[0];
+
+                try {
+                    callback(reprocessed);
+                }
+                catch (e) {
+                    console.warn(e);
+                }
+            }
+        }
+    }
+
+    onDestroy() {
+        var tasks = this.microTasks,
+            reporters = this.reporters;
+        var len, list;
+
+        for (list = tasks, len = list.length; len--;) {
+            this.unobserve(tasks[len]);
+        }
+
+        for (list = reporters, len = list.length; len--;) {
+            this.unsubscribe(tasks[len]);
+        }
+
+        super.onDestroy();
+    }
+
 
     isAdoptable(node) {
         return node instanceof ProcessTask;
@@ -62,6 +105,19 @@ export class ProcessTask extends Node {
         }
 
         return -1;
+    }
+
+    reporterIndexOf(handler) {
+        var list = this.microTasks,
+            l = list.length;
+
+        for (; l--;) {
+            if (list[l][0] === handler) {
+                return l;
+            }
+        }
+
+        return -1; 
     }
 
     observe(handler) {
@@ -92,24 +148,63 @@ export class ProcessTask extends Node {
         return this;
     }
 
-    process() {
-        var isPending = this.isPending;
-        var status;
+    subscribe(handler) {
+        var list = this.reporters;
 
-        if (isPending && !this.isProcessing) {
-            this.isProcessing = true;
+        if (method(handler)) {
+            list[list.length] = [handler, true];
+
+            return () => this.unsubscribe(handler);
+        }
+
+        return doNothing;
+    }
+
+    unsubscribe(handler) {
+        var list = this.reporters,
+            index = this.reporterIndexOf(handler);
+
+        if (index !== -1) {
+            list[index][1] = false;
+            list.splice(index, 1);
+        }
+        return this;
+    }
+
+
+
+    process() {
+        var monitor = this.taskMonitor,
             status = { rerun: false };
 
-            this.onProcess(status);
+        if (!monitor.isRunning) {
+            monitor.queue(this);
 
+        }
+        else if (this.isPending && !this.isProcessing) {
+            this.isProcessing = true;
+            this.reprocessed = false;
+
+            this.onProcess(createReprocessFlagCallback(status));
+            this.reprocessed = status.rerun;
+            
             this.isProcessing = false;
-            isPending = status.rerun;
-           
+
         }
 
-        if (isPending) {
-            this.monitor.queue(this);
-        }
+        return status.rerun;
+
     }
+
+    report() {
+
+        if (this.isAlive) {
+            this.onReport(this.reprocessed);
+            this.reprocessed = false;
+
+        }
+
+    }
+
 
 }
