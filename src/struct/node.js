@@ -9,6 +9,8 @@ export class Node {
 
         me.isAlive = true;
 
+        me.orphan = true;
+
         me.parent = 
             me.first = 
             me.last = 
@@ -106,6 +108,8 @@ export class Node {
             me.last = node;
         }
 
+        node.orphan = false;
+
         this.onAdd(node);
         
         return node;
@@ -138,6 +142,8 @@ export class Node {
             me.last = before;
         }
 
+        node.orphan = true;
+        
         this.onRemove(node);
 
         return node;
@@ -149,6 +155,12 @@ export class Node {
 
         if (me.isAlive) {
             delete me.isAlive;
+
+            // remove if attached from parent
+            if (!me.orphan) {
+                me.parent.remove(me);
+            }
+
             me.onDestroy();
         }
 

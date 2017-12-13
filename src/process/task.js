@@ -31,12 +31,18 @@ export class ProcessTask extends Node {
 
     // runs synchronous tasks
     onProcess(statusChangeCallback) {
-        var list = this.microTasks,
+        var me = this,
+            list = me.microTasks,
             running = list.slice(0);
         var task, callback;
         
         for (; running.length; ) {
             task = running.splice(0, 1)[0];
+
+            // do not process when orphaned
+            if (me.orphan) {
+                break;
+            }
 
             if (task[1]) {
                 callback = task[0];
@@ -53,18 +59,23 @@ export class ProcessTask extends Node {
 
     }
 
-    onReport(reprocessed) {
-        var list = this.reporters.slice(0);
+    onReport(statusChangeCallback) {
+        var me = this,
+            list = me.reporters.slice(0);
+
         var handler, callback;
 
         for (; list.length;) {
             handler = list.splice(0, 1)[0];
-
+            if (me.orphan) {
+                break;
+                
+            }
             if (handler[1]) {
                 callback = handler[0];
 
                 try {
-                    callback(reprocessed);
+                    callback(statusChangeCallback);
                 }
                 catch (e) {
                     console.warn(e);
@@ -88,7 +99,6 @@ export class ProcessTask extends Node {
 
         super.onDestroy();
     }
-
 
     isAdoptable(node) {
         return node instanceof ProcessTask;
@@ -171,38 +181,46 @@ export class ProcessTask extends Node {
         return this;
     }
 
-
-
     process() {
-        var monitor = this.taskMonitor,
-            status = { rerun: false };
+        var monitor = this.taskMonitor;
+        var status;
 
-        if (!monitor.isRunning) {
-            monitor.queue(this);
+        if (this.isAlive && !this.orphan) {
+            if (!monitor.isRunning) {
+                monitor.queue(this);
 
+            }
+            else if (this.isPending && !this.isProcessing) {
+
+                status = { rerun: false };
+
+                this.isProcessing = true;
+                this.reprocessed = false;
+
+                this.onProcess(createReprocessFlagCallback(status));
+                this.reprocessed = status.rerun;
+                
+                this.isProcessing = false;
+
+                return status.rerun;
+
+            }
         }
-        else if (this.isPending && !this.isProcessing) {
-            this.isProcessing = true;
-            this.reprocessed = false;
 
-            this.onProcess(createReprocessFlagCallback(status));
-            this.reprocessed = status.rerun;
-            
-            this.isProcessing = false;
-
-        }
-
-        return status.rerun;
+        return false;
 
     }
 
     report() {
+        var status;
 
-        if (this.isAlive) {
-            this.onReport(this.reprocessed);
-            this.reprocessed = false;
-
+        if (this.isAlive && !this.orphan) {
+            status = { rerun: false };
+            this.onReport(createReprocessFlagCallback(status));
+            return status.rerun;
         }
+
+        return false;
 
     }
 

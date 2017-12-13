@@ -1,35 +1,45 @@
 'use strict';
 
-import { Monitor } from './index';
+import { ProcessMonitor } from './process/monitor.js';
+
+function demo1() {
+
+    var test = new ProcessMonitor(),
+        until = 10;
+    var unobserve;
+
+    console.log('good! ', test);
+
+    var task = test.create();
+
+    function innerRun() {
+        console.log('inner');
+    }
 
 
-var test = new Monitor(),
-    until = 10;
+    unobserve = task.observe(function (reprocess) {
+        console.log('prime run!');
+        
+        task.process();
+        
+        console.log('until ', until);
 
-console.log('good! ', test);
+        if (until === 5) {
+            console.log('unobserve');
+            unobserve();
+        }
 
-var task = test.create();
+        if (until--) {
+            reprocess();
+        }
+    });
 
-function innerRun() {
-    console.log('inner');
+    task.observe(function () {
+        innerRun();
+    });
+
+
+    task.process();
 }
 
-
-task.observe(function (reprocess) {
-    console.log('prime run!');
-    
-    task.process();
-    
-    console.log('until ', until);
-
-    if (until--) {
-        reprocess();
-    }
-});
-
-task.observe(function () {
-    innerRun();
-});
-
-
-task.process();
+demo1();

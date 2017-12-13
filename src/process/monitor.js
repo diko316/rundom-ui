@@ -18,6 +18,7 @@ export class ProcessMonitor {
     onRunProcess() {
         var running = this.processing,
             reports = [],
+            reportLength = 0,
             processTasks = true;
         var node, requestingReprocess;
 
@@ -28,31 +29,44 @@ export class ProcessMonitor {
 
             for (; running.length;) {
                 node = running.splice(0, 1)[0];
-                if (node.isAlive) {
+                if (node.isAlive && !node.orphan) {
 
                     requestingReprocess = node.process();
                     node.isPending = false;
 
                     if (requestingReprocess) {
                         processTasks = true;
+                        if (reports.indexOf(node) === -1) {
+                            reports[reportLength++] = node;
+                        }
                     }
                     
                 }
             }
 
-        }
+            // reporting changes to node
+            if (!processTasks) {
 
-        // run reports
-        running = [];
-        this.onQueueAllProcess(running);
+                for (; reports.length;) {
+                    node = reports.splice(0, 1)[0];
+                    
+                    if (node.isAlive && !node.orphan) {
+                        requestingReprocess = node.report();
 
-        for (; running.length;) {
-            node = running.splice(0, 1)[0];
-            
-            if (node.isAlive) {
-                node.report();
+                        if (requestingReprocess) {
+                            processTasks = true;
+                        }
+                    }
+                }
+
+                if (!processTasks) {
+                    processTasks = !!running.length;
+                }
+
             }
+
         }
+
     }
 
     
@@ -107,6 +121,13 @@ export class ProcessMonitor {
 
         return task;
 
+    }
+
+    remove(task) {
+        
+        this.taskRoot.remove(task);
+
+        return task;
     }
 
     queue(node) {
