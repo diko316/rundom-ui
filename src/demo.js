@@ -10,7 +10,12 @@ function demo1() {
 
     console.log('good! ', test);
 
-    var task = test.create();
+    var task = test.create(),
+        task2 = test.create();
+
+
+
+
 
     function innerRun() {
         console.log('inner');
@@ -36,6 +41,18 @@ function demo1() {
 
     task.observe(function () {
         innerRun();
+    });
+
+    task2.observe(function () {
+        console.log('processing task 2');
+    });
+
+    task.subscribe(function () {
+        console.log('task1 is reprocessed');
+    });
+
+    task2.subscribe(function () {
+        console.log('task2 is reprocessed');
     });
 
 

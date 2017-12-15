@@ -70,7 +70,7 @@ export class Node {
         var me = this;
         var parent, after;
 
-        node = this.configure(node);
+        node = me.configure(node);
 
         if (!me.isAdoptable(node)||
             node.parent === me || node.hasParent(me)) {
@@ -93,20 +93,32 @@ export class Node {
             parent.remove(node);
         }
 
-        // relate to siblings
-        node.after = after = before;
-        node.before = before = before && before.before;
-
         // own child
         node.parent = me;
 
-        if (!before) {
+        // append
+        after = before;
+        before = after ?
+            after && after.before : me.last;
+
+
+        if (before) {
+            before.after = node;
+        }
+        else {
             me.first = node;
         }
 
-        if (!after) {
+        node.before = before;
+
+        if (after) {
+            after.before = node;
+        }
+        else {
             me.last = node;
         }
+
+        node.after = after;
 
         node.orphan = false;
 
@@ -154,12 +166,12 @@ export class Node {
         var me = this;
 
         if (me.isAlive) {
-            delete me.isAlive;
-
             // remove if attached from parent
             if (!me.orphan) {
                 me.parent.remove(me);
             }
+            
+            delete me.isAlive;
 
             me.onDestroy();
         }
