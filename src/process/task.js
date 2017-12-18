@@ -2,222 +2,176 @@
 
 import { Node } from '../struct/node.js';
 
-import { method } from 'libcore';
+import { ProcessSubscription } from './subscription.js';
 
-function doNothing() {
+import {
+            IDLE,
+            PROCESSING,
+            PROCESSED,
+            REPROCESSING,
+            REPROCESSED,
+            REPORTING,
+            REPORTED,
+            DEAD,
+            StateInput,
+            STATE_MAP
+        } from './task-state.js';
 
-}
+import {
+            string,
+            contains
+        } from 'libcore';
 
-function createReprocessFlagCallback(status) {
-    function reprocess() {
-        status.rerun = true;
-    }
-    return reprocess;
-}
 
 export class ProcessTask extends Node {
 
     constructor(monitor) {
         super();
-
-        this.taskMonitor = monitor;
-        this.microTasks = [];
-        this.reporters = [];
-        this.isPending = false;
-        this.isProcessing = false;
-        this.reprocessed = false;
-
-    }
-
-    // runs synchronous tasks
-    onProcess(statusChangeCallback) {
-        var me = this,
-            list = me.microTasks,
-            running = list.slice(0);
-        var task, callback;
+        this.state = IDLE;
+        this.monitor = monitor;
         
-        for (; running.length; ) {
-            task = running.splice(0, 1)[0];
-
-            // do not process when orphaned
-            if (me.orphan) {
-                break;
-            }
-
-            if (task[1]) {
-                callback = task[0];
-
-                try {
-                    callback(statusChangeCallback);
-                }
-                catch (e) {
-                    console.warn(e);
-                }
-
-            }
-        }
-
-    }
-
-    onReport(statusChangeCallback) {
-        var me = this,
-            list = me.reporters.slice(0);
-
-        var handler, callback;
-
-        for (; list.length;) {
-            handler = list.splice(0, 1)[0];
-            if (me.orphan) {
-                break;
-                
-            }
-            if (handler[1]) {
-                callback = handler[0];
-
-                try {
-                    callback(statusChangeCallback);
-                }
-                catch (e) {
-                    console.warn(e);
-                }
-            }
-        }
+        this.onInitialize();
     }
 
     onDestroy() {
-        var tasks = this.microTasks,
-            reporters = this.reporters;
-        var len, list;
+        var me = this,
+            task = me.task;
 
-        for (list = tasks, len = list.length; len--;) {
-            this.unobserve(tasks[len]);
-        }
+        me.changeState(StateInput.Die);
 
-        for (list = reporters, len = list.length; len--;) {
-            this.unsubscribe(tasks[len]);
-        }
+        task.process.destroy();
+        task.report.destroy();
+        task.statechange.destroy();
 
         super.onDestroy();
+    }
+    
+    onInitialize() {
+        var Subscription = ProcessSubscription,
+            me = this,
+            task = {
+                process: new Subscription(),
+                report: new Subscription(),
+                statechange: new Subscription()
+            };
+
+        me.task = task;
+        me.processStatus = null;
+        me.reportStatus = null;
+    }
+
+    onProcess(requestReprocess) {
+        this.task.process.broadcast(requestReprocess);
+    }
+
+    onReport(requestReprocess) {
+        this.task.report.broadcast(requestReprocess);
     }
 
     isAdoptable(node) {
         return node instanceof ProcessTask;
     }
 
-    taskIndexOf(handler) {
-        var list = this.microTasks,
-            l = list.length;
+    subscribe(state, handler) {
 
-        for (; l--;) {
-            if (list[l][0] === handler) {
-                return l;
-            }
+        if (string(state) && contains(STATE_MAP, state)) {
+
+            return this.task.statechange.
+                        subscribe(runningState => runningState === state ?
+                                                        handler(this) : null);
         }
 
-        return -1;
+        throw new Error('[state] parameter is not a known task state');
     }
 
-    reporterIndexOf(handler) {
-        var list = this.microTasks,
-            l = list.length;
-
-        for (; l--;) {
-            if (list[l][0] === handler) {
-                return l;
-            }
-        }
-
-        return -1; 
+    processor(handler) {
+        return this.task.process.subscribe(handler);
     }
 
-    observe(handler) {
-        var list = this.microTasks;
-        var task;
-
-        if (method(handler) && this.taskIndexOf(handler) === -1) {
-            task = [handler, true, false];
-
-            list[list.length] = task;
-
-            return () => this.unobserve(handler);
-        }
-
-        return doNothing;
-    }
-
-    unobserve(handler) {
-        var list = this.microTasks,
-            index = this.taskIndexOf(handler);
-        var item;
-
-        if (index !== -1) {
-            item = list[index][1] = false;
-            list.splice(index, 1);
-        }
-
-        return this;
-    }
-
-    subscribe(handler) {
-        var list = this.reporters;
-
-        if (method(handler)) {
-            list[list.length] = [handler, true];
-
-            return () => this.unsubscribe(handler);
-        }
-
-        return doNothing;
-    }
-
-    unsubscribe(handler) {
-        var list = this.reporters,
-            index = this.reporterIndexOf(handler);
-
-        if (index !== -1) {
-            list[index][1] = false;
-            list.splice(index, 1);
-        }
-        return this;
+    reporter(handler) {
+        return this.task.report.subscribe(handler);
     }
 
     process() {
-        var monitor = this.taskMonitor;
-        var status;
 
-        if (this.isAlive && !this.orphan) {
-            if (!monitor.isRunning) {
-                monitor.queue(this);
+        var Input = StateInput,
+            ProcessInput = Input.Process,
+            QueueInput = Input.QueueProcess,
+            me = this,
+            status = me.processStatus,
+            monitor = me.monitor,
+            reportStatus = me.reportStatus;
 
-            }
-            else if (this.isPending && !this.isProcessing) {
+        // can enqueue
+        if (me.nextState(QueueInput)) {
+            me.changeState(QueueInput);
+            monitor.enqueue(me);
 
-                status = { rerun: false };
-
-                this.isProcessing = true;
-                this.reprocessed = false;
-
-                this.onProcess(createReprocessFlagCallback(status));
-                this.reprocessed = status.rerun;
-                
-                this.isProcessing = false;
-
-                return status.rerun;
-
-            }
         }
+        else if (me.nextState(ProcessInput)) {
+            me.changeState(ProcessInput);
+            me.processStatus = status = { reprocess: false };
+            
+            me.onProcess(() => status.reprocess = true);
 
+            me.processStatus = null;
+
+            // end process
+            if (me.changeState(Input.EndProcess)) {
+                return status.reprocess;
+            }
+
+        }
+        else if (this.state === REPORTING && reportStatus) {
+            reportStatus.reprocess = true;
+        }
+        
         return false;
-
+        
     }
 
     report() {
+        var Input = StateInput;
         var status;
 
-        if (this.isAlive && !this.orphan) {
-            status = { rerun: false };
-            this.onReport(createReprocessFlagCallback(status));
-            return status.rerun;
+        if (this.changeState(Input.Report)) {
+
+            this.reportStatus = status = { reprocess: false };
+
+            this.onReport(() => status.reprocess = false);
+
+            this.reportStatus = null;
+
+            this.changeState(Input.EndReport);
+
+            return status.reprocess;
+
+        }
+
+        return false;
+    }
+
+    nextState(input) {
+        var old = this.state,
+            reference = STATE_MAP[old];
+
+        if (input !== old && contains(reference, input)) {
+            return reference[input];
+        }
+
+        return false;
+    }
+
+    changeState(input) {
+        var state = this.nextState(input);
+        var old;
+
+        if (state) {
+            old = this.state;
+            this.state = state;
+            this.task.statechange.broadcast(state, old);
+            return state;
+            
         }
 
         return false;

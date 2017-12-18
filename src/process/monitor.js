@@ -1,54 +1,83 @@
 'use strict';
 
-import { ProcessTask } from './task';
+import { Node } from '../struct/node.js';
 
-export class ProcessMonitor {
+import { ProcessTask } from './task.js';
+
+import { ProcessSubscription } from './subscription.js';
+
+import {
+            IDLE,
+            PROCESSING,
+            PROCESSED,
+            REPROCESSING,
+            REPROCESSED,
+            REPORTING,
+            REPORTED,
+            DEAD,
+            QUEUE_PROCESS,
+            QUEUE_REPROCESS,
+            QUEUE_REPORT,
+            StateInput,
+            STATE_MAP
+        } from './task-state.js';
+
+export class ProcessMonitor extends Node {
 
     constructor() {
+        super();
 
-        this.taskRoot = this.createProcess();
-        this.isRunning = false;
-        this.processing = [];
+        this.isProcessing = false;
+        this.maximimumCycle = 50;
+
+        this.pendingTasks = [];
+
     }
 
-    onCreateProcess(task) {
-
+    onCreateTask(node) {
+        node.subscribe(PROCESSING, (node) => {
+            console.log('state change? ', node.state);
+        });
     }
 
-    onRunProcess() {
-        var running = this.processing,
-            reports = [],
-            reportLength = 0,
-            processTasks = true;
-        var node, requestingReprocess,
-            len, depth, current;
+    onProcess() {
+        var me = this,
+            pending = me.pendingTasks,
+            changed = [],
+            rerun = true,
+            QueueProcess = StateInput.QueueProcess,
+            QueueReport = StateInput.QueueReport,
+            cycleLimit = this.maximimumCycle;
 
-        for (; processTasks;) {
+        var task, result, changeLength, len, current, depth;
 
-            processTasks = false;
+        for (; rerun;) {
+            rerun = false;
+            changeLength = 0;
 
+            // enqueue all tasks
             depth = 0;
-            len = running.length;
-            
+            len = pending.length;
+
             // preorder queue process
-            for (current = this.taskRoot; current;) {
+            for (current = me; current;) {
                 
                 // process pre-order
-                if (!current.isPending) {
-                    current.isPending = true;
-                    running[len++] = current;
+                if (depth && current.changeState(QueueProcess)) {
+                    
+                    pending[len++] = current;
                 }
     
                 // go into first child
-                node = current.first;
+                task = current.first;
     
                 // go next sibling or parentNode's nextSibling
-                if (!node) {
-                    node = current.after;
+                if (!task) {
+                    task = current.after;
     
-                    for (; !node && depth-- && current;) {
+                    for (; !task && depth-- && current;) {
                         current = current.parent;
-                        node = current.after;
+                        task = current.after;
                     }
                 }
                 // go deeper into node
@@ -56,138 +85,97 @@ export class ProcessMonitor {
                     depth++;
                 }
     
-                current = node;
+                current = task;
             }
 
-            // process queue
-            for (; running.length;) {
-                node = running.splice(0, 1)[0];
+            // run tasks
+            for (; pending.length;) {
+                task = pending.splice(0, 1)[0];
 
-                // reprocess from structure change
-                if (node.orphan) {
-                    processTasks = true;
-
-                }
-                else {
-
-                    requestingReprocess = node.process();
-                    node.isPending = false;
-
-                    if (requestingReprocess) {
-                        processTasks = true;
-                        if (reports.indexOf(node) === -1) {
-                            reports[reportLength++] = node;
+                switch (task.state) {
+                case QUEUE_REPROCESS:
+                case QUEUE_PROCESS:
+                    result = task.process();
+                    
+                    if (result) {
+                        rerun = true;
+                        if (!task.isForReporting) {
+                            task.isForReporting = true;
+                            changed[changeLength++] = task;
                         }
                     }
-                    
                 }
-
+                
             }
 
-            // reporting changes to node
-            if (!processTasks) {
+            // run report
+            if (!rerun) {
+                
+                for (; changed.length;) {
+                    task = changed.splice(0, 1)[0];
+                    delete task.isForReporting;
 
-                for (; reports.length;) {
-                    node = reports.splice(0, 1)[0];
-                    
-                    if (node.isAlive) {
-                        node.report();
+                    if (task.changeState(QueueReport)) {
+                        
+                        result = task.report();
+                        //console.log('report result ', result, task.state);
+                        if (result) {
+                            rerun = true;
+                        }
+                        
                     }
                 }
 
-            }
-
-        }
-
-    }
-
-    
-    onQueueAllProcess(queue) {
-
-        var len = queue.length,
-            depth = 0;
-        var current, node;
-
-        // pre order traverse and enqueue all process
-        for (current = this.taskRoot; current;) {
-            
-            // process pre-order
-            if (current.isAlive && !current.isPending) {
-                current.isPending = true;
-                queue[len++] = current;
-            }
-
-            // go into first child
-            node = current.first;
-
-            // go next sibling or parentNode's nextSibling
-            if (!node) {
-                node = current.after;
-
-                for (; !node && depth-- && current;) {
-                    current = current.parent;
-                    node = current.after;
+                // never reach cycle limit
+                if (--cycleLimit) {
+                    rerun = false;
                 }
             }
-            // go deeper into node
-            else {
-                depth++;
-            }
 
-            current = node;
+            
+        }
+    }
+
+    isAdoptable(node) {
+        return node instanceof ProcessTask;
+    }
+
+    configure(node) {
+        if (node instanceof ProcessTask) {
+            return node;
         }
 
+        node = new ProcessTask(this);
+
+        this.onCreateTask(node);
+
+        return node;
     }
 
-    createProcess() {
-        var task = new ProcessTask(this);
-        this.onCreateProcess(task);
-        return task;
-    }
+    enqueue(node) {
+        var list = this.pendingTasks;
 
-    create() {
-        var task = this.createProcess();
+        if (node instanceof ProcessTask &&
+            node.monitor === this) {
+            switch (node.state) {
 
-        // attach to root;
-        this.taskRoot.add(task);
-
-        return task;
-
-    }
-
-    remove(task) {
-        
-        this.taskRoot.remove(task);
-
-        return task;
-    }
-
-    queue(node) {
-        var running = this.processing;
-
-        // queue for next process
-        if (node instanceof ProcessTask && node.isAlive && !node.isPending) {
-
-            // insert to current process
-            node.isPending = true;
-            running[running.length] = node;
-
-            // create thread
-            if (!this.isRunning) {
-                
-                this.isRunning = true;
-
-                // run pending process
-                this.onRunProcess();
-
-                this.isRunning = false;
-
+            case QUEUE_PROCESS:
+            case QUEUE_REPROCESS:
+                list[list.length] = node;
             }
+
+            if (!this.isProcessing) {
+                this.isProcessing = true;
+    
+                this.onProcess();
+    
+                this.isProcessing = false;
+            }
+
         }
 
+        return this;
     }
-
-
 
 
 }

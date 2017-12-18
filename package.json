@@ -51,7 +51,7 @@
     "rollup-plugin-uglify": "^2.0.1"
   },
   "dependencies": {
-    "joqx": "0.0.1",
+    "joqx": "0.0.2",
     "libcore": "^0.3.8",
     "libcore-parser-lalr": "^0.2.2",
     "libdom": "^0.5.7",
